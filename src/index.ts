@@ -1,11 +1,7 @@
 import { createApp } from './app';
 import { startCleanup } from './cleanup';
 import { mkdir } from 'fs/promises';
-
-/** 服务端口 */
-const PORT = 3000;
-/** 临时文件根目录 */
-const TEMP_DIR = '/tmp/office-preview';
+import { PORT, TEMP_DIR } from './constants';
 
 const main = async (): Promise<void> => {
   // 确保临时目录存在

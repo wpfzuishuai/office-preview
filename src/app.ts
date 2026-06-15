@@ -7,15 +7,17 @@ import { convertToHtml, ConversionError } from './converter';
 import { isFormatSupported } from './format';
 import { request as httpsRequest } from 'https';
 import { request as httpRequest } from 'http';
+import { TEMP_DIR, MAX_CONCURRENT_CONVERSIONS } from './constants';
 
-/** 临时文件根目录 */
-const TEMP_DIR = '/tmp/office-preview';
+/** 并发转换信号量 */
+let activeConversions = 0;
 
 /** 通过 HEAD 请求获取 Content-Type */
 const fetchContentType = (targetUrl: string): Promise<string | null> => {
   return new Promise((resolve) => {
     const protocol = targetUrl.startsWith('https:') ? httpsRequest : httpRequest;
     const req = protocol(targetUrl, { method: 'HEAD', timeout: 5000 }, (res) => {
+      res.on('error', () => {});
       res.resume();
       resolve(res.headers['content-type'] || null);
     });
@@ -66,6 +68,12 @@ export const createApp = (): express.Express => {
       return;
     }
 
+    // 并发限制
+    if (activeConversions >= MAX_CONCURRENT_CONVERSIONS) {
+      res.status(503).json({ error: 'Server busy, try again later' });
+      return;
+    }
+
     // Content-Type 检查（HEAD 失败不阻止，交给后续处理）
     const contentType = await fetchContentType(url);
     const ext = extname(parsedUrl.pathname).replace('.', '');
@@ -78,6 +86,7 @@ export const createApp = (): express.Express => {
     const taskId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
     const taskDir = join(TEMP_DIR, taskId);
 
+    activeConversions++;
     try {
       await mkdir(taskDir, { recursive: true });
 
@@ -93,8 +102,9 @@ export const createApp = (): express.Express => {
       const htmlPath = join(taskDir, 'input.html');
       const html = await readFile(htmlPath, 'utf-8');
 
-      // 替换资源路径并返回
+      // 替换资源路径并设置安全头
       const resultHtml = replaceResourcePaths(html, taskId);
+      res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline';");
       res.type('html').send(resultHtml);
     } catch (err) {
       if (err instanceof DownloadError) {
@@ -107,6 +117,8 @@ export const createApp = (): express.Express => {
       }
       const message = err instanceof Error ? err.message : 'Unknown error';
       res.status(500).json({ error: `Internal error: ${message}` });
+    } finally {
+      activeConversions--;
     }
   });
 

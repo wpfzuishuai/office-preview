@@ -1,8 +1,7 @@
 import { readdir, rm } from 'fs/promises';
 import { join } from 'path';
+import { TEMP_DIR } from './constants';
 
-/** 临时文件根目录 */
-const TEMP_DIR = '/tmp/office-preview';
 /** 最大保留时间（毫秒） */
 const MAX_AGE_MS = 30 * 60 * 1000;
 /** 清理间隔（毫秒） */
@@ -30,8 +29,8 @@ export const startCleanup = (): (() => void) => {
           await rm(dirPath, { recursive: true, force: true });
         }
       }
-    } catch {
-      // 目录尚不存在或已清理
+    } catch (err) {
+      console.error('Cleanup error:', err);
     }
   }, CLEANUP_INTERVAL_MS);
 
