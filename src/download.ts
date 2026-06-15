@@ -11,7 +11,7 @@ interface IDownloadFileParams {
 
 /** 下载文件到本地 */
 export const downloadFile = async ({ url, destPath }: IDownloadFileParams): Promise<void> => {
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: { 'User-Agent': 'office-preview/1.0' } });
   if (!res.ok || !res.body) {
     throw new Error(`Download failed: HTTP ${res.status}`);
   }
