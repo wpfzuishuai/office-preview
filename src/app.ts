@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { mkdir, readdir } from 'fs/promises';
 import { join, extname } from 'path';
 import { downloadFile, DownloadError } from './download';
-import { convertToImages, ConversionError } from './converter';
+import { convertToPdf, pdfToImages, ConversionError } from './converter';
 import { isFormatSupported } from './format';
 import { request as httpsRequest } from 'https';
 import { request as httpRequest } from 'http';
@@ -100,8 +100,12 @@ export const createApp = (): express.Express => {
       const inputPath = join(taskDir, `input.${inputExt}`);
       await downloadFile({ url, destPath: inputPath });
 
-      // 逐页转为 PNG 图片
-      await convertToImages({ inputPath, outputDir: taskDir });
+      // Office 转 PDF
+      await convertToPdf({ inputPath, outputDir: taskDir });
+
+      // PDF 逐页转 PNG 图片
+      const pdfPath = join(taskDir, 'input.pdf');
+      await pdfToImages({ pdfPath, outputDir: taskDir });
 
       // 收集生成的图片并按名称排序
       const files = await readdir(taskDir);

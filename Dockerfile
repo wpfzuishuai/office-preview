@@ -5,6 +5,7 @@ RUN apt-get update && \
     libreoffice-writer \
     libreoffice-calc \
     libreoffice-impress \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
