@@ -11,19 +11,21 @@ export class ConversionError extends Error {
 /** LibreOffice 转换超时时间（ms） */
 const CONVERSION_TIMEOUT_MS = 30000;
 
-interface IConvertToHtmlParams {
+interface IConvertParams {
   /** 输入文件路径 */
   inputPath: string;
   /** 输出目录路径 */
   outputDir: string;
+  /** 输出格式 */
+  format: 'html' | 'png';
 }
 
-/** 使用 LibreOffice headless 将 Office 文件转为 HTML */
-export const convertToHtml = ({ inputPath, outputDir }: IConvertToHtmlParams): Promise<void> => {
+/** 使用 LibreOffice headless 转换 Office 文件 */
+const convert = ({ inputPath, outputDir, format }: IConvertParams): Promise<void> => {
   return new Promise((resolve, reject) => {
     const proc = spawn('soffice', [
       '--headless',
-      '--convert-to', 'html',
+      '--convert-to', format,
       '--outdir', outputDir,
       inputPath,
     ]);
@@ -52,4 +54,28 @@ export const convertToHtml = ({ inputPath, outputDir }: IConvertToHtmlParams): P
       reject(new ConversionError(`Failed to start LibreOffice: ${err.message}`));
     });
   });
+};
+
+interface IConvertToHtmlParams {
+  /** 输入文件路径 */
+  inputPath: string;
+  /** 输出目录路径 */
+  outputDir: string;
+}
+
+/** 使用 LibreOffice headless 将 Office 文件转为 HTML */
+export const convertToHtml = ({ inputPath, outputDir }: IConvertToHtmlParams): Promise<void> => {
+  return convert({ inputPath, outputDir, format: 'html' });
+};
+
+interface IConvertToImagesParams {
+  /** 输入文件路径 */
+  inputPath: string;
+  /** 输出目录路径 */
+  outputDir: string;
+}
+
+/** 使用 LibreOffice headless 将 Office 文件逐页转为 PNG 图片 */
+export const convertToImages = ({ inputPath, outputDir }: IConvertToImagesParams): Promise<void> => {
+  return convert({ inputPath, outputDir, format: 'png' });
 };

@@ -1,9 +1,9 @@
 import express, { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
-import { mkdir, readFile } from 'fs/promises';
+import { mkdir, readdir } from 'fs/promises';
 import { join, extname } from 'path';
 import { downloadFile, DownloadError } from './download';
-import { convertToHtml, ConversionError } from './converter';
+import { convertToImages, ConversionError } from './converter';
 import { isFormatSupported } from './format';
 import { request as httpsRequest } from 'https';
 import { request as httpRequest } from 'http';
@@ -30,20 +30,25 @@ const fetchContentType = (targetUrl: string): Promise<string | null> => {
   });
 };
 
-/** 替换 HTML 中相对路径为 /files 路由 */
-const replaceResourcePaths = (html: string, taskId: string): string => {
-  const prefix = `/files/${taskId}`;
-  return html.replace(
-    /(src|href)="(?!https?:\/\/|\/|data:|#)([^"]+)"/gi,
-    (_: string, attr: string, p: string) => `${attr}="${prefix}/${p}"`,
-  );
+/** 生成图片预览 HTML 页面 */
+const buildPreviewHtml = (images: string[], taskId: string): string => {
+  const imgTags = images
+    .map((name) => `<img src="/files/${taskId}/${name}" style="max-width:100%;margin-bottom:16px;display:block;" />`)
+    .join('\n');
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:16px;background:#e8e8e8;display:flex;flex-direction:column;align-items:center;">
+${imgTags}
+</body>
+</html>`;
 };
 
 /** 创建 Express 应用 */
 export const createApp = (): express.Express => {
   const app = express();
 
-  // 静态资源服务：提供转换产物中的图片、CSS 等
+  // 静态资源服务：提供转换产物中的图片
   app.use('/files', express.static(TEMP_DIR, { maxAge: '30m' }));
 
   app.get('/preview', async (req: Request, res: Response) => {
@@ -74,7 +79,7 @@ export const createApp = (): express.Express => {
       return;
     }
 
-    // Content-Type 检查（HEAD 失败不阻止，交给后续处理）
+    // Content-Type 检查（HEAD 失败不阻止）
     const contentType = await fetchContentType(url);
     const ext = extname(parsedUrl.pathname).replace('.', '');
     if (!isFormatSupported({ contentType: contentType ?? undefined, ext })) {
@@ -95,17 +100,23 @@ export const createApp = (): express.Express => {
       const inputPath = join(taskDir, `input.${inputExt}`);
       await downloadFile({ url, destPath: inputPath });
 
-      // 转换为 HTML
-      await convertToHtml({ inputPath, outputDir: taskDir });
+      // 逐页转为 PNG 图片
+      await convertToImages({ inputPath, outputDir: taskDir });
 
-      // 读取转换结果
-      const htmlPath = join(taskDir, 'input.html');
-      const html = await readFile(htmlPath, 'utf-8');
+      // 收集生成的图片并按名称排序
+      const files = await readdir(taskDir);
+      const images = files
+        .filter((f) => f.endsWith('.png'))
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
-      // 替换资源路径并设置安全头
-      const resultHtml = replaceResourcePaths(html, taskId);
-      res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline';");
-      res.type('html').send(resultHtml);
+      if (images.length === 0) {
+        res.status(500).json({ error: 'Conversion produced no output' });
+        return;
+      }
+
+      // 返回图片预览页面
+      const html = buildPreviewHtml(images, taskId);
+      res.type('html').send(html);
     } catch (err) {
       if (err instanceof DownloadError) {
         res.status(502).json({ error: err.message });
