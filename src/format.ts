@@ -12,6 +12,22 @@ const VALID_CONTENT_TYPES: ReadonlySet<string> = new Set([
   "text/csv",
 ]);
 
+/** 通过 HEAD 请求获取 Content-Type */
+export const fetchContentType = async (targetUrl: string): Promise<string | null> => {
+  try {
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 5000);
+    const res = await fetch(targetUrl, {
+      method: 'HEAD',
+      signal: ctrl.signal,
+      headers: { 'User-Agent': 'office-preview/1.0' },
+    });
+    return res.headers.get('content-type');
+  } catch {
+    return null;
+  }
+};
+
 export interface IIsFormatSupportedParams {
   /** Content-Type 头（可能包含 charset） */
   contentType: string | undefined;
