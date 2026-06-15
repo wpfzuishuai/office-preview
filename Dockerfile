@@ -10,7 +10,7 @@ RUN apt-get update && \
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
+RUN corepack enable && pnpm install --frozen-lockfile --config.onlyBuiltDependencies=esbuild
 
 COPY tsconfig.json ./
 COPY src/ ./src/
