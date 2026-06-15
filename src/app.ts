@@ -16,7 +16,7 @@ let activeConversions = 0;
 const fetchContentType = (targetUrl: string): Promise<string | null> => {
   return new Promise((resolve) => {
     const protocol = targetUrl.startsWith('https:') ? httpsRequest : httpRequest;
-    const req = protocol(targetUrl, { method: 'HEAD', timeout: 5000 }, (res) => {
+    const req = protocol(targetUrl, { method: 'HEAD', timeout: 5000, headers: { 'User-Agent': 'office-preview/1.0' } }, (res) => {
       res.on('error', () => {});
       res.resume();
       resolve(res.headers['content-type'] || null);
