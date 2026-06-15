@@ -5,6 +5,7 @@ RUN apt-get update && \
     libreoffice-writer \
     libreoffice-calc \
     libreoffice-impress \
+    fonts-noto-cjk \
     poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
