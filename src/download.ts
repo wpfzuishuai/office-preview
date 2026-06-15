@@ -1,6 +1,6 @@
 import { createWriteStream } from 'fs';
 import { get } from 'https';
-import { request } from 'http';
+import { get as httpGet } from 'http';
 
 /** 下载失败错误 */
 export class DownloadError extends Error {
@@ -20,7 +20,7 @@ interface IDownloadFileParams {
 /** 流式下载文件到本地 */
 export const downloadFile = ({ url, destPath }: IDownloadFileParams): Promise<void> => {
   return new Promise((resolve, reject) => {
-    const protocol = url.startsWith('https') ? get : request;
+    const protocol = url.startsWith('https') ? get : httpGet;
 
     const req = protocol(url, { timeout: 15000 }, (res) => {
       if (res.statusCode === 301 || res.statusCode === 302) {
@@ -51,6 +51,5 @@ export const downloadFile = ({ url, destPath }: IDownloadFileParams): Promise<vo
       req.destroy();
       reject(new DownloadError('Download timeout'));
     });
-    req.end();
   });
 };
