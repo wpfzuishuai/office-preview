@@ -5,7 +5,7 @@ import { join, extname } from 'path';
 import { downloadFile, DownloadError } from './download';
 import { convertToHtml, ConversionError } from './converter';
 import { isFormatSupported } from './format';
-import { get as httpsGet } from 'https';
+import { request as httpsRequest } from 'https';
 import { request as httpRequest } from 'http';
 
 /** 临时文件根目录 */
@@ -14,10 +14,9 @@ const TEMP_DIR = '/tmp/office-preview';
 /** 通过 HEAD 请求获取 Content-Type */
 const fetchContentType = (targetUrl: string): Promise<string | null> => {
   return new Promise((resolve) => {
-    // https.get 自动调用 .end()（HEAD 通过 options.method 指定）;
-    // http.request 需要手动调用 .end()
-    const protocol = targetUrl.startsWith('https:') ? httpsGet : httpRequest;
+    const protocol = targetUrl.startsWith('https:') ? httpsRequest : httpRequest;
     const req = protocol(targetUrl, { method: 'HEAD', timeout: 5000 }, (res) => {
+      res.resume();
       resolve(res.headers['content-type'] || null);
     });
     req.on('error', () => resolve(null));
