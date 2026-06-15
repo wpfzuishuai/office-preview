@@ -13,7 +13,7 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile --ignore-scripts
 
-COPY tsconfig.json ./
+COPY tsconfig.json rollup.config.mjs ./
 COPY src/ ./src/
 
 RUN pnpm build && pnpm prune --prod
