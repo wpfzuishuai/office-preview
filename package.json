@@ -8,6 +8,7 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
+    "execa": "^9.6.1",
     "express": "^4.21.0"
   },
   "devDependencies": {

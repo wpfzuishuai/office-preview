@@ -1,9 +1,9 @@
 import express, { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
-import { mkdir, readdir } from 'fs/promises';
+import { mkdir, readFile, rm } from 'fs/promises';
 import { join, extname } from 'path';
-import { downloadFile, DownloadError } from './download';
-import { convertToPdf, pdfToImages, ConversionError } from './converter';
+import { downloadFile } from './download';
+import { convertToPdf } from './converter';
 import { isFormatSupported } from './format';
 import { request as httpsRequest } from 'https';
 import { request as httpRequest } from 'http';
@@ -30,16 +30,80 @@ const fetchContentType = (targetUrl: string): Promise<string | null> => {
   });
 };
 
-/** 生成图片预览 HTML 页面 */
-const buildPreviewHtml = (images: string[], taskId: string): string => {
-  const imgTags = images
-    .map((name) => `<img src="/files/${taskId}/${name}" style="max-width:100%;margin-bottom:16px;display:block;" />`)
-    .join('\n');
+/** pdf.js CDN 地址 */
+const PDFJS_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+const PDFJS_WORKER_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+
+/** 生成 pdf.js 渲染预览 HTML 页面，PDF 以 base64 内嵌 */
+const buildPreviewHtml = (base64: string): string => {
   return `<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
-<body style="margin:0;padding:16px;background:#e8e8e8;display:flex;flex-direction:column;align-items:center;">
-${imgTags}
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#525659; }
+  .pages { display:flex; flex-direction:column; align-items:center; padding:16px 0; }
+  .page-wrapper { margin-bottom:12px; box-shadow:0 2px 12px rgba(0,0,0,.5); background:#fff; max-width:calc(100% - 32px); }
+  .page-wrapper canvas { display:block; max-width:100%; height:auto !important; }
+  .loading { color:#ccc; text-align:center; padding:60px 20px; font:16px system-ui,sans-serif; }
+</style>
+</head>
+<body>
+<div class="pages" id="pagesContainer"><div class="loading">正在加载 PDF...</div></div>
+<script src="${PDFJS_URL}"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = '${PDFJS_WORKER_URL}';
+
+const PADDING = 32;
+const container = document.getElementById('pagesContainer');
+let pdfDoc = null;
+
+const renderAllPages = () => {
+  if (!pdfDoc) return;
+  container.innerHTML = '';
+  const dpr = window.devicePixelRatio || 1;
+  const screenWidth = window.innerWidth - PADDING;
+  for (let i = 1; i <= pdfDoc.numPages; i++) {
+    pdfDoc.getPage(i).then((page) => {
+      const baseViewport = page.getViewport({ scale: 1 });
+      const scale = (screenWidth / baseViewport.width) * dpr;
+      const viewport = page.getViewport({ scale });
+      const wrapper = document.createElement('div');
+      wrapper.className = 'page-wrapper';
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      canvas.style.width = '100%';
+      canvas.style.height = 'auto';
+      wrapper.appendChild(canvas);
+      container.appendChild(wrapper);
+      page.render({ canvasContext: canvas.getContext('2d'), viewport });
+    });
+  }
+};
+
+// 将 base64 字符串转为 Uint8Array 传给 pdf.js
+const binaryStr = atob('${base64}');
+const bytes = new Uint8Array(binaryStr.length);
+for (let i = 0; i < binaryStr.length; i++) {
+  bytes[i] = binaryStr.charCodeAt(i);
+}
+
+pdfjsLib.getDocument({ data: bytes }).promise.then((pdf) => {
+  pdfDoc = pdf;
+  renderAllPages();
+}).catch((err) => {
+  container.innerHTML = '<div class="loading" style="color:#f66;">\\u52a0\\u8f7d PDF \\u5931\\u8d25\\uff1a' + err.message + '</div>';
+});
+
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(renderAllPages, 200);
+});
+</script>
 </body>
 </html>`;
 };
@@ -47,9 +111,6 @@ ${imgTags}
 /** 创建 Express 应用 */
 export const createApp = (): express.Express => {
   const app = express();
-
-  // 静态资源服务：提供转换产物中的图片
-  app.use('/files', express.static(TEMP_DIR, { maxAge: '30m' }));
 
   app.get('/preview', async (req: Request, res: Response) => {
     const { url } = req.query;
@@ -59,7 +120,6 @@ export const createApp = (): express.Express => {
       return;
     }
 
-    // 校验 URL 基本格式
     let parsedUrl: URL;
     try {
       parsedUrl = new URL(url);
@@ -73,21 +133,17 @@ export const createApp = (): express.Express => {
       return;
     }
 
-    // 并发限制
     if (activeConversions >= MAX_CONCURRENT_CONVERSIONS) {
       res.status(503).json({ error: 'Server busy, try again later' });
       return;
     }
 
-    // Content-Type 检查（HEAD 失败不阻止）
     const contentType = await fetchContentType(url);
-    const ext = extname(parsedUrl.pathname).replace('.', '');
-    if (!isFormatSupported({ contentType: contentType ?? undefined, ext })) {
-      res.status(400).json({ error: `Unsupported file format: ${contentType || ext}` });
+    if (!isFormatSupported({ contentType: contentType ?? undefined })) {
+      res.status(400).json({ error: `Unsupported file format: ${contentType || 'unknown'}` });
       return;
     }
 
-    // 生成任务目录
     const taskId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
     const taskDir = join(TEMP_DIR, taskId);
 
@@ -95,43 +151,22 @@ export const createApp = (): express.Express => {
     try {
       await mkdir(taskDir, { recursive: true });
 
-      // 下载文件
-      const inputExt = ext || 'bin';
+      const inputExt = extname(parsedUrl.pathname).replace('.', '') || 'bin';
       const inputPath = join(taskDir, `input.${inputExt}`);
       await downloadFile({ url, destPath: inputPath });
 
-      // Office 转 PDF
       await convertToPdf({ inputPath, outputDir: taskDir });
 
-      // PDF 逐页转 PNG 图片
+      // 读取 PDF，内嵌到 HTML 后立即清理临时目录
       const pdfPath = join(taskDir, 'input.pdf');
-      await pdfToImages({ pdfPath, outputDir: taskDir });
+      const pdfBuffer = await readFile(pdfPath);
+      await rm(taskDir, { recursive: true, force: true });
 
-      // 收集生成的图片并按名称排序
-      const files = await readdir(taskDir);
-      const images = files
-        .filter((f) => f.endsWith('.png'))
-        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-
-      if (images.length === 0) {
-        res.status(500).json({ error: 'Conversion produced no output' });
-        return;
-      }
-
-      // 返回图片预览页面
-      const html = buildPreviewHtml(images, taskId);
+      const html = buildPreviewHtml(pdfBuffer.toString('base64'));
       res.type('html').send(html);
     } catch (err) {
-      if (err instanceof DownloadError) {
-        res.status(502).json({ error: err.message });
-        return;
-      }
-      if (err instanceof ConversionError) {
-        res.status(500).json({ error: err.message });
-        return;
-      }
       const message = err instanceof Error ? err.message : 'Unknown error';
-      res.status(500).json({ error: `Internal error: ${message}` });
+      res.status(500).json({ error: message });
     } finally {
       activeConversions--;
     }
