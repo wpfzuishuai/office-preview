@@ -1,6 +1,6 @@
 # office-preview
 
-在线预览 Office 文件的轻量服务。通过 LibreOffice 将 Office 文件转为 PDF，再使用 pdf.js 在浏览器中渲染。
+在线预览 Office 文件的轻量 HTTP 服务。通过 LibreOffice 将 Office 文件转为 PDF，再使用 pdf.js 在浏览器中内联渲染。
 
 ## 快速开始
 
@@ -12,8 +12,18 @@ docker run -d --name office-preview -p 3000:3000 office-preview
 打开浏览器访问：
 
 ```
-http://localhost:3000/preview?url=<文件地址>
+http://localhost:3000/preview?url=<Office 文件地址>
 ```
+
+## API
+
+### `GET /preview`
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `url` | string（必填） | 要预览的 Office 文件 URL |
+
+响应：包含 pdf.js 渲染器的 HTML 页面，PDF 以 base64 内嵌。
 
 ## 支持格式
 
@@ -23,20 +33,20 @@ http://localhost:3000/preview?url=<文件地址>
 | Excel | `.xls` `.xlsx` `.ods` `.csv` |
 | PowerPoint | `.ppt` `.pptx` `.odp` |
 
-## 镜像说明
+## 工作流程
+
+1. 对目标 URL 发起 HEAD 请求，检查 Content-Type
+2. 下载文件到 `/dev/shm/office-preview/<task-id>/`（内存文件系统）
+3. 调用 `soffice --headless --convert-to pdf` 转换（60s 超时）
+4. 将 PDF 以 base64 内嵌 HTML，通过 pdf.js 渲染
+5. 清理临时目录
+
+## 镜像
 
 基于 `node:22-slim`，额外安装：
 
-- `libreoffice-writer` / `libreoffice-calc` / `libreoffice-impress` — Office 转 PDF
+- `libreoffice-writer` / `libreoffice-calc` / `libreoffice-impress` — 文件格式转换
 - `fonts-noto-cjk` — 中文等 CJK 字符渲染
-
-## 工作流程
-
-1. 对目标 URL 发起 HEAD 请求，检查 Content-Type 是否受支持
-2. 下载文件到 `/dev/shm/office-preview/<task-id>/`（内存文件系统）
-3. 调用 `soffice --headless --convert-to pdf` 转为 PDF
-4. 将 PDF 以 base64 内嵌到 HTML 中，通过 pdf.js 渲染
-5. 清理临时目录
 
 ## 本地开发
 
@@ -51,6 +61,6 @@ pnpm start      # 运行编译产物
 
 ## 限制
 
-- 最多同时处理 2 个转换请求
+- 同时最多 2 个转换请求
 - 单次转换超时 60 秒
-- 临时目录 `/dev/shm` 仅在 Linux 容器内可用
+- `/dev/shm` 仅 Linux 容器内可用
