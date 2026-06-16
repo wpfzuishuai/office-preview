@@ -1,9 +1,12 @@
-import { createApp } from './app';
+import { createApp, cache } from './app';
 import { mkdir } from 'fs/promises';
 import { PORT, TEMP_DIR } from './constants';
 
 const main = async (): Promise<void> => {
-  await mkdir(TEMP_DIR, { recursive: true });
+  await Promise.all([
+    mkdir(TEMP_DIR, { recursive: true }),
+    cache.cleanup(),
+  ]);
 
   const app = createApp();
   app.listen(PORT, () => {
